@@ -1,0 +1,200 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import Groq from 'groq-sdk';
+import { classifyDeveloperIntent } from './intentRules.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware Setup
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+
+// Anti-Caching & Stateless Privacy Headers
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
+
+// Initialize Groq SDK Client
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
+
+/**
+ * Universal Gemini REST Adapter
+ * Handles both AQ... OAuth Bearer tokens and AIzaSy... API Keys
+ */
+async function callGeminiApi(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is missing in .env file.');
+  }
+
+  // Model cascade list for resilience
+  const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+  // Configure authentication headers based on key format
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey.startsWith('AQ.')) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  } else {
+    headers['x-goog-api-key'] = apiKey;
+  }
+
+  for (const modelId of geminiModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        console.warn(`[Gemini Info] '${modelId}' returned status (${data.error.code}): ${data.error.message}`);
+        continue;
+      }
+
+      const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (textOutput) {
+        return { text: textOutput, modelUsed: modelId };
+      }
+    } catch (err) {
+      if (geminiModels.indexOf(modelId) === geminiModels.length - 1) {
+        throw err;
+      }
+    }
+  }
+  throw new Error('All Gemini model endpoints failed authentication or returned 404.');
+}
+
+/**
+ * Universal Groq SDK Adapter
+ * Handles fast execution with active model fallbacks
+ */
+async function callGroqApi(prompt) {
+  const groqKey = process.env.GROQ_API_KEY || '';
+  if (!groqKey) {
+    throw new Error('GROQ_API_KEY is missing in .env file.');
+  }
+
+  const activeGroqModels = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'deepseek-r1-distill-llama-70b',
+    'mixtral-8x7b-32768'
+  ];
+
+  for (const model of activeGroqModels) {
+    try {
+      const response = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: model,
+      });
+      return { text: response.choices[0]?.message?.content || '', modelUsed: model };
+    } catch (err) {
+      console.warn(`[Groq Info] '${model}' returned status (${err.status || 'Error'}): ${err.message}`);
+      if (err.status === 401) {
+        throw new Error('Invalid Groq API Key (401 Unauthorized). Check console.groq.com');
+      }
+      continue;
+    }
+  }
+  throw new Error('All active Groq model attempts failed.');
+}
+
+// Main Router API Endpoint
+app.post('/api/router', async (req, res) => {
+  try {
+    const { prompt, hasImage } = req.body;
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Valid prompt string is required.' });
+    }
+
+    // Step 1: Classify Prompt Intent via Phase 1 Engine
+    const routingDecision = classifyDeveloperIntent(prompt, hasImage);
+    let { modelConfig, category } = routingDecision;
+
+    let completionText = '';
+    const startTime = Date.now();
+
+    // Step 2: Dynamically Route Prompt with Automated Failover
+    try {
+      if (modelConfig.provider === 'google') {
+        const geminiResult = await callGeminiApi(prompt);
+        completionText = geminiResult.text;
+        modelConfig.id = geminiResult.modelUsed;
+        modelConfig.displayName = `Google ${geminiResult.modelUsed}`;
+      } 
+      else if (modelConfig.provider === 'groq') {
+        const groqResult = await callGroqApi(prompt);
+        completionText = groqResult.text;
+        modelConfig.id = groqResult.modelUsed;
+        modelConfig.displayName = `Groq ${groqResult.modelUsed}`;
+      }
+    } catch (primaryErr) {
+      console.warn(`[Primary Provider Failover] '${modelConfig.provider}' encountered: ${primaryErr.message}`);
+      console.warn(`[Failover] Routing seamlessly via cross-provider backup node...`);
+
+      if (modelConfig.provider === 'groq') {
+        const geminiBackup = await callGeminiApi(prompt);
+        completionText = geminiBackup.text;
+        modelConfig = {
+          displayName: `Google ${geminiBackup.modelUsed} (Failover)`,
+          id: geminiBackup.modelUsed,
+          provider: 'google',
+          reasoning: 'Primary Groq route encountered rate limit/key error. Executed seamlessly via Google Gemini backup node.'
+        };
+      } else {
+        const groqBackup = await callGroqApi(prompt);
+        completionText = groqBackup.text;
+        modelConfig = {
+          displayName: `Groq ${groqBackup.modelUsed} (Failover)`,
+          id: groqBackup.modelUsed,
+          provider: 'groq',
+          reasoning: 'Primary Google route encountered rate limit/key error. Executed seamlessly via Groq backup node.'
+        };
+      }
+    }
+
+    const latencyMs = Date.now() - startTime;
+
+    // Step 3: Return Response & Attribution Metadata
+    return res.json({
+      success: true,
+      output: completionText,
+      metadata: {
+        selectedModel: modelConfig.displayName,
+        modelId: modelConfig.id,
+        provider: modelConfig.provider,
+        category: category,
+        routingReason: modelConfig.reasoning,
+        executionTimeMs: latencyMs
+      }
+    });
+
+  } catch (error) {
+    console.error('Fatal Router Error:', error.message);
+    return res.status(500).json({ 
+      error: 'Failed to process request across target model APIs.',
+      details: error.message 
+    });
+  }
+});
+
+// Start Express Server
+app.listen(PORT, () => {
+  console.log(`==================================================`);
+  console.log(`🚀 Stateless AI Router active on http://localhost:${PORT}`);
+  console.log(`🔒 Privacy Guarantee: Zero database / Zero log persistence`);
+  console.log(`==================================================\n`);
+});

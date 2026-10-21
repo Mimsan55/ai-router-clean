@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Router</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-main: #0b0f17;
+      --bg-card: #151d2a;
+      --bg-input: #111723;
+      --border-color: #232f45;
+      --border-focus: #4f46e5;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-primary: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      padding: 2.5rem 1.5rem;
+      max-width: 960px;
+      margin: 0 auto;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: -0.02em;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      border: 1px solid var(--border-color);
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background-color: var(--success);
+      border-radius: 50%;
+    }
+
+    .input-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      transition: border-color 0.2s ease;
+    }
+
+    .input-wrapper:focus-within {
+      border-color: var(--border-focus);
+    }
+
+    .input-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      display: block;
+    }
+
+    textarea {
+      width: 100%;
+      height: 140px;
+      background: var(--bg-input);
+      color: #f1f5f9;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.9rem;
+      font-size: 0.92rem;
+      font-family: var(--font-mono);
+      outline: none;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .actions-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 1rem;
+    }
+
+    .hint-text {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    button {
+      background: var(--accent-primary);
+      color: #ffffff;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      transition: background-color 0.15s ease, transform 0.1s ease;
+    }
+
+    button:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      background: #334155;
+      color: #94a3b8;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #resultSection {
+      margin-top: 2rem;
+      display: none;
+    }
+
+    .metadata-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 0.9rem 1.25rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .model-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .model-badge {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+
+    .reason-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .latency-tag {
+      font-size: 0.82rem;
+      color: var(--success);
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+  
+    .output-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.75rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .prose {
+      font-size: 0.98rem;
+      color: #cbd5e1;
+      line-height: 1.75;
+      word-break: break-word;
+    }
+
+    /* Formatted Output Elements */
+    .prose h1, .prose h2, .prose h3 {
+      color: #f8fafc;
+      margin-top: 1.4rem;
+      margin-bottom: 0.6rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .prose h3 { font-size: 1.1rem; }
+    .prose p { margin-bottom: 1rem; }
+    .prose ul, .prose ol { margin-left: 1.5rem; margin-bottom: 1rem; }
+    .prose li { margin-bottom: 0.4rem; }
+    
+    .prose code {
+      background: #0f172a;
+      color: #38bdf8;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      border: 1px solid #1e293b;
+    }
+
+    .prose pre {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 1.2rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .prose pre code {
+      background: transparent;
+      padding: 0;
+      color: #f1f5f9;
+      border: none;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    footer.privacy-banner {
+      margin-top: 3.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    footer.privacy-banner strong {
+      color: var(--text-main);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <h1>AI Router</h1>
+    </div>
+    <div class="status-pill">
+      <span class="status-dot"></span>Engine Active
+    </div>
+  </header>
+
+  <main>
+    <div class="input-wrapper">
+      <label for="promptInput" class="input-label">Developer Query Prompt</label>
+      <textarea id="promptInput" placeholder="Enter code, SQL query, PyTest request, or microservice log trace..."></textarea>
+    </div>
+
+    <div class="actions-bar">
+      <span class="hint-text">Automatic intent classification &amp; SSE token stream</span>
+      <button id="submitBtn">Run Prompt through Router</button>
+    </div>
+
+    <section id="resultSection">
+      <div class="metadata-card">
+        <div class="model-info">
+          <span id="modelTag" class="model-badge">Selecting Route...</span>
+          <span id="reasonTag" class="reason-text">Analyzing developer intent...</span>
+        </div>
+        <div id="timeTag" class="latency-tag">Connecting...</div>
+      </div>
+
+      <div class="output-container">
+        <div id="outputContent" class="prose"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="privacy-banner">
+    <strong>Privacy First Guarantee:</strong> Zero database persistence, zero session tracking, anti-cache headers enabled. Prompts are analyzed in-memory and routed directly to official API providers.
+  </footer>
+
+  <script>
+    const submitBtn = document.getElementById('submitBtn');
+    const promptInput = document.getElementById('promptInput');
+    const resultSection = document.getElementById('resultSection');
+    const modelTag = document.getElementById('modelTag');
+    const reasonTag = document.getElementById('reasonTag');
+    const timeTag = document.getElementById('timeTag');
+    const outputContent = document.getElementById('outputContent');
+
+    // Simple, lightweight text formatter for comfortable reading
+    function renderFormattedText(text) {
+      if (!text) return '';
+      
+      // Escape HTML entities to prevent XSS
+      let escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      // Format markdown code blocks
+      escaped = escaped.replace(/```([\s\S]*?)```/g, function(match, code) {
+        return `<pre><code>${code.trim()}</code></pre>`;
+      });
+
+      // Format inline code
+      escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      // Format bold text
+      escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+      // Format headings
+      escaped = escaped.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+
+      return escaped;
+    }
+
+    submitBtn.addEventListener('click', async () => {
+      const prompt = promptInput.value.trim();
+      if (!prompt) return alert('Please enter a prompt first.');
+
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Routing Stream...';
+      resultSection.style.display = 'block';
+      modelTag.innerText = 'Selecting Route...';
+      reasonTag.innerText = 'Evaluating intent rules...';
+      timeTag.innerText = 'Streaming...';
+      outputContent.innerHTML = '';
+
+      let rawStreamText = '';
+
+      try {
+        const response = await fetch('/api/v1/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmed.slice(6));
+
+                if (data.type === 'metadata') {
+                  modelTag.innerText = data.selectedModel;
+                  reasonTag.innerText = data.reasoning;
+                  timeTag.innerText = 'Streaming tokens...';
+                } else if (data.type === 'chunk') {
+                  rawStreamText += data.content;
+                  outputContent.innerHTML = renderFormattedText(rawStreamText);
+                } else if (data.type === 'done') {
+                  modelTag.innerText = data.finalModel;
+                  timeTag.innerText = `Latency: ${data.executionTimeMs}ms`;
+                } else if (data.type === 'error') {
+                  outputContent.innerHTML += `<br><span style="color: #ef4444;">[Stream Error: ${data.message}]</span>`;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (err) {
+        outputContent.innerText = `Connection Failed: ${err.message}`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Run Prompt through Router';
+      }
+    });
+  </script>
+
+</body>
+</html>
